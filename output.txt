@@ -1,0 +1,7 @@
+Ask:Faster(Bob, Steve)
+Ask:Faster(Bob, Steve)
+Ask:Faster(Bob, Steve)
+False:Faster(Bob, Steve)
+Ask:Pig(Steve)
+False:Pig(Steve)
+False

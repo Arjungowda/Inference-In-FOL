@@ -1,0 +1,315 @@
+#!/usr/bin/python
+import sys,copy,re,collections
+
+kb=collections.OrderedDict()
+qlist=collections.OrderedDict()
+allFacts=[]
+scount=0
+
+def get_op(query):
+    query = query.strip()
+    opr = query[0:query.index('(')]
+    return opr
+def isCompound(x):
+    if x.find('(') != -1:
+        return True
+    else:
+        return False
+def getFirst(x):
+    x = x[0: x.index(',')]
+    return x.strip()
+
+def occur_check(x, s,var):
+    if var == x:
+        return True
+    elif isVariable(x) and x in s:
+        return occur_check(s[x], s, var)
+    elif isCompound(x):
+        return occur_check( get_op(x), s) or occur_check(var, arg_fetch(x), s,var)
+    else:
+        return False
+def getRest(x):
+    x = x[x.index(',') + 1: len(x)]
+    return x.strip()
+def replace(var, x, subslist):
+    args = arg_fetch(x)
+    for a in args:
+        if isCompound(a):
+            replace(var, x, subslist)
+        elif isVariable(a):
+            if a in subslist.keys():
+                substitution_value = subslist[a]
+                subslist[var] = x.replace(x[x.find('(') + 1: x.find(')')], substitution_value)
+                return subslist
+            else:
+                return False
+def arg_fetch(args):
+    args = args.strip()
+    return args[args.index('(') + 1: len(args) - 1]
+
+def get_op(a):
+    return a[0:a.find('(')]
+def get_args(a):
+    if is_compound(a):
+        return a[a.find('(') + 1:len(a) - 1]
+def is_variable(x):
+    if x.islower() and not is_list(x) and not is_compound(x):
+        return True
+    else:
+        return False
+def is_compound(x):
+    if '(' in x:
+        return True
+    else:
+        return False
+def is_list(x):
+    if ',' in x:
+        return True
+def standardize(clause,i):
+    variables = []
+    temp = [get_op(clause), '(']
+    if get_args(clause):
+        args = get_args(clause).split(",")
+        for v in args:
+            if is_variable(v):
+                temp.append(v + str(i))
+                temp.append(',')
+                variables.append(v)
+            else:
+                temp.append(v)
+                temp.append(',')
+        temp[len(temp)-1] = ')'
+        clause = "".join(temp)
+    return clause
+def isVariable(var):
+    var = var.strip()
+    if var[0].islower():
+        for i in range(1, len(var)):
+            if var[i] not in ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']:
+                return False
+        return True
+    else:
+        return False
+def isargs(x):
+    if ',' in x:
+        return True
+    else:
+        return False
+
+def unify(x, y, subslist):
+    x = x.strip()
+    y = y.strip()
+
+    if subslist is False:
+        return False
+
+    temp_subs = dict.copy(subslist)
+
+    if x == y:
+        return temp_subs
+
+    elif isVariable(x):
+        return unify_var(x, y, temp_subs)
+
+    elif isVariable(y):
+        return unify_var(y, x, temp_subs)
+
+    elif isCompound(x) and isCompound(y):
+        return unify(arg_fetch(x), arg_fetch(y), unify(get_op(x), get_op(y), temp_subs))
+
+    elif isargs(x) and isargs(y):
+        return unify(getRest(x), getRest(y), unify(getFirst(x), getFirst(y), temp_subs))
+    else:
+        return False
+def arg_fetch_as_list(args):
+    arg = arg_fetch(args)
+    arg=arg.strip(' ');
+    return arg.split(',')
+
+def unify_var(var, x, subslist):
+    if var in subslist.keys():
+        return unify(subslist[var], x, subslist)
+    elif x in subslist.keys():
+        return unify(var, subslist[x], subslist)
+    elif occur_check( x, subslist,var):
+        return False
+    elif isCompound(x):
+        subres = replace(var, x, subslist)
+        if not subres:
+            return False
+        else:
+            return subslist
+    else:
+        subslist[var] = x
+        return subslist
+def uni_replace(subslist, x):
+    retval = x[:x.find('(')+1]
+    args = arg_fetch_as_list(x)
+    for a in args:
+        a = a.strip()
+        if isCompound(a):
+            uni_replace(subslist, a)
+        else:
+            if isVariable(a):
+                if a in subslist.keys():
+                    value = subslist[a]
+                    if isVariable(value) and value in subslist:
+                        value = subslist[value]
+                    retval += value + ','
+                else:
+                    retval += a + ','
+            else:
+                retval += a + ','
+    retval = retval[:len(retval)-1]
+    retval += ')'
+    return retval
+def FOL_BC_ASK(q):
+    global allFacts
+    del allFacts[:]
+    for i in FOL_BC_OR(q, {}):
+        return i
+
+def printlog(query ,state):
+    operator, arg_list=split_query(query)
+    for i in range(0,len(arg_list)):
+        if(isVariable(arg_list[i])):
+            arg_list[i]="_"
+    if state==-1:
+        textFile.write("False:"+operator+'('+", ".join(arg_list)+')')
+    elif(state==0):
+        textFile.write("Ask:"+operator+'('+", ".join(arg_list)+')')
+    else:
+        textFile.write("True:"+operator+'('+", ".join(arg_list)+')')
+    textFile.write("\n")
+
+def FOL_BC_OR(goal, theta):
+    match_flag=False
+    keyList=[]
+    p=0
+    for key in kb.keys():
+        if get_op(key) == get_op(goal):
+           keyList.append(key)
+    for key in keyList:
+        key,value= getrule(key)
+        unifier = unify(key, goal, theta)
+        if  unifier is not False:
+                printlog(goal,0)
+                p=1
+        for theta1 in FOL_BC_AND(value, unifier):
+            match_flag=True
+            if 'Found' in theta1:
+                printlog(uni_replace(theta1, goal),1)
+            yield theta1
+    if match_flag==False and p ==0:
+        printlog(goal,0)
+        printlog(goal,-1)
+    elif match_flag==False and p==1:
+        printlog(goal,-1)
+
+def getrule(key):
+    global  scount
+    value = kb[key];
+    if not value:
+        return key,[]
+    key=standardize(key,scount)
+    temp = []
+    for s in value[0].split("&&"):
+        temp.append(standardize(s, scount))
+    scount+=1
+    return key,temp
+def FOL_BC_AND(goals, theta):
+    if theta is not True:
+        return
+    elif not goals:
+        theta['Found']='found'
+        yield theta
+    else:
+        first, rest = goals[0], goals[1:]
+        for theta1 in FOL_BC_OR(uni_replace(theta, first), theta):
+            for theta2 in FOL_BC_AND( rest, theta1):
+                yield theta2
+
+def split_query(query):
+    m = re.search(r"\((.*)\)", query)
+    arg_list =  str(m.group(1)).split(',')
+    operator = query.split('(')[0]
+    arg_list = [arg.strip() for arg in arg_list]
+    return operator.strip(), arg_list
+
+def getQuery(query):
+    global  qlist
+    curList=query.split("&&");
+    curList = [x.strip(' ') for x in curList]
+    for val in curList:
+        qlist[val]=False
+    return
+def kb_generate(clause ,i):
+    global kb
+    curList=clause.split("=>")
+    curList = [x.strip(' ') for x in curList]
+    if '=>' in clause:
+        for j in range(0, len(curList)):
+            clause_split = curList[j].split('&&')
+            temp = []
+            for s in clause_split:
+                temp.append(standardize(s, i))
+            curList[j] = "&&".join(temp)
+        if curList[1].strip() in kb.keys():
+            addList = kb[curList[1].strip()]
+            addList.append(curList[0].strip())
+            kb[curList[1].strip()] = addList
+        else:
+            kb[curList[1].strip('')] = [curList[0].strip('')]
+    else:
+            kb[clause]=[]
+
+def readFile(inputFile):
+    global kb
+    i = 0
+    with open(inputFile,'rU') as f:
+        inputData = [x.strip('\n') for x in f.readlines()]
+    for val in inputData:
+        if(i==1):
+            i+=1
+            continue
+        elif(i==0):
+            getQuery(val)
+            i+=1
+        else:
+            val=val.replace(" ", "")
+            kb_generate(val,i-2)
+            i+=1;
+
+def checkInput(argv):
+    if (len(argv) != 3):
+        if (argv[1] == "-i"):
+            print "Error in the arguments"
+
+def printDat():
+    print qlist
+    print kb
+
+def getRes():
+    global qlist
+    value=1
+    for q in qlist:
+        val=FOL_BC_ASK(q)
+        try:
+            if 'Found' in val:
+                if 'Failed' not in val:
+                    continue
+            else:
+                value=0
+        except:
+                value=0
+    if value != 0:
+        textFile.write("True")
+    else:
+        textFile.write("False")
+
+if __name__ == "__main__":
+    #checkInput(sys.argv)
+    textFile = open("output.txt","w")
+    readFile("input.txt")
+    printDat()
+    getRes()
